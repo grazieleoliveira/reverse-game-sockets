@@ -24,38 +24,48 @@ current_turn = 'B'  # 'B' para preto, 'W' para branco
 def broadcast_board():
     for client in clients:
         try:
+            # Send board updates without MSG prefix to keep them internal
             client.sendall(f"BOARD:{str(board)}".encode())
         except:
             clients.remove(client)
             client.close()
 
 # Função para enviar uma mensagem para todos os clientes
-def broadcast_message(message):
+def broadcast_message(message, prefix="MSG:"):
     for client in clients:
         try:
-            client.sendall(f"MSG:{message}".encode())
+            # Use prefix (default "MSG:") to identify external chat messages
+            client.sendall(f"{prefix}{message}".encode())
         except:
             clients.remove(client)
             client.close()
 
-# Função para validar uma jogada
 def is_valid_move(x, y, color):
+    print(f'CURRENT MOVE {x} {y}')
     if board[y][x] != ' ':
         return False
+    
+    # Define directions
     directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
     valid = False
+    
+    # Check each direction
     for dx, dy in directions:
         nx, ny = x + dx, y + dy
         pieces_to_flip = []
+        
+        # Move in the current direction while within boundaries and encountering the opponent's color
         while 0 <= nx < 8 and 0 <= ny < 8 and board[ny][nx] != ' ' and board[ny][nx] != color:
             pieces_to_flip.append((nx, ny))
             nx += dx
             ny += dy
+            
+        # If after the opponent's pieces, there's a piece of the current player's color, the move is valid
         if 0 <= nx < 8 and 0 <= ny < 8 and board[ny][nx] == color and pieces_to_flip:
             valid = True
             break
-    return valid
 
+    return valid
 # Função para executar uma jogada
 def make_move(x, y, color):
     directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
@@ -70,6 +80,11 @@ def make_move(x, y, color):
         if 0 <= nx < 8 and 0 <= ny < 8 and board[ny][nx] == color:
             for fx, fy in pieces_to_flip:
                 board[fy][fx] = color
+
+    # After making a move, check if the opponent has valid moves
+    opponent_color = 'W' if color == 'B' else 'B'
+    if not has_valid_moves(opponent_color):
+        broadcast_message(f"Player {color} wins! The opponent has no valid moves.")
 
 # Função para verificar se um jogador tem jogadas válidas
 def has_valid_moves(color):
@@ -105,12 +120,18 @@ def handle_client(client_socket, player_color):
                 client_socket.close()
                 clients.remove(client_socket)
                 break
+            elif message.startswith("RESIGN:"):
+                winner_color = 'W' if player_color == 'B' else 'B'
+                broadcast_message(f"Player {winner_color} wins by resignation!")
+                break
+
 
         except Exception as e:
             print(f"Erro: {e}")
             clients.remove(client_socket)
             client_socket.close()
             break
+
 
 # Configuração do socket do servidor
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

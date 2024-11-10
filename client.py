@@ -9,40 +9,81 @@ SERVER_HOST = '192.168.0.113'
 SERVER_PORT = 65432
 BUFFER_SIZE = 1024
 
-# Conectar ao servidor
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 client_socket.connect((SERVER_HOST, SERVER_PORT))
 
-# Configuração do Pygame
 window, font = pygame_setup()
 square_size = CONSTANTS.WIDTH // 8
 pieces = []
-
-# Variável para controlar a comunicação
-messages = []
+messages = []  # Store messages for display in chat
 player_color = None
+input_text = ''  # Store player's typed message
+
+RESIGN_BUTTON = pygame.Rect(10, 550, 100, 30)  # Position (10, 550) and size (100x30)
+
 
 def draw_initial_pieces():
-    pieces.append((3, 3, CONSTANTS.WHITE))
-    pieces.append((3, 4, CONSTANTS.BLACK))
-    pieces.append((4, 3, CONSTANTS.BLACK))
-    pieces.append((4, 4, CONSTANTS.WHITE))
+    pieces.extend([(3, 3, CONSTANTS.WHITE), (3, 4, CONSTANTS.BLACK), (4, 3, CONSTANTS.BLACK), (4, 4, CONSTANTS.WHITE)])
 
-# Função para desenhar o tabuleiro
+
 def draw_board():
+    window.fill(CONSTANTS.WHITE)
+    # Draw board
     for row in range(8):
         for col in range(8):
             square_rect = pygame.Rect(col * square_size, row * square_size, square_size, square_size)
             pygame.draw.rect(window, CONSTANTS.GREEN, square_rect)
             pygame.draw.rect(window, CONSTANTS.WHITE, square_rect, 2)
 
-# Função para desenhar uma peça
+    # Draw pieces
+    for piece in pieces:
+        draw_piece(piece[0], piece[1], piece[2])
+
+    # Draw chat area below the board
+    chat_area_start = 410  # Start drawing chat below the board
+    chat_height = 20
+    for idx, msg in enumerate(messages[-8:]):  # Show only last 8 messages
+        text_surface = font.render(msg, True, CONSTANTS.BLACK)
+        window.blit(text_surface, (10, chat_area_start + idx * chat_height))
+
+    # Draw the typing text line
+    typing_surface = font.render(input_text, True, CONSTANTS.BLACK)
+    window.blit(typing_surface, (10, chat_area_start + len(messages[-8:]) * chat_height))
+
+    window.fill(CONSTANTS.WHITE)
+    # Draw board and pieces
+    for row in range(8):
+        for col in range(8):
+            square_rect = pygame.Rect(col * square_size, row * square_size, square_size, square_size)
+            pygame.draw.rect(window, CONSTANTS.GREEN, square_rect)
+            pygame.draw.rect(window, CONSTANTS.WHITE, square_rect, 2)
+
+    for piece in pieces:
+        draw_piece(piece[0], piece[1], piece[2])
+
+    # Draw chat area
+    chat_area_start = 410
+    chat_height = 20
+    for idx, msg in enumerate(messages[-8:]):  # Last 8 messages
+        text_surface = font.render(msg, True, CONSTANTS.BLACK)
+        window.blit(text_surface, (10, chat_area_start + idx * chat_height))
+
+    # Draw input box
+    input_box = pygame.Rect(10, 600, CONSTANTS.WIDTH - 20, 30)
+    pygame.draw.rect(window, CONSTANTS.GRAY, input_box)
+    text_surface = font.render(input_text, True, CONSTANTS.BLACK)
+    window.blit(text_surface, (input_box.x + 5, input_box.y + 5))
+
+    pygame.draw.rect(window, CONSTANTS.RED, RESIGN_BUTTON)
+    button_text = font.render("Resign", True, CONSTANTS.WHITE)
+    window.blit(button_text, (RESIGN_BUTTON.x + 10, RESIGN_BUTTON.y + 5))
+
+
 def draw_piece(square_col, square_row, color):
     center_x = square_col * square_size + square_size // 2
     center_y = square_row * square_size + square_size // 2
     pygame.draw.circle(window, color, (center_x, center_y), 20)
 
-# Função para atualizar o tabuleiro a partir do estado recebido do servidor
 def update_board(board_state):
     global pieces
     pieces = []
@@ -53,50 +94,65 @@ def update_board(board_state):
             elif board_state[row][col] == 'B':
                 pieces.append((col, row, CONSTANTS.BLACK))
 
-# Função para receber atualizações do servidor
 def receive_updates():
     global player_color
     while True:
         try:
             message = client_socket.recv(BUFFER_SIZE).decode()
             if message.startswith("BOARD:"):
-                update_board(eval(message[6:]))
+                update_board(eval(message[6:]))  # Board update (internal)
             elif message.startswith("MSG:"):
-                messages.append(message[4:])
-                print(message[4:])
-                if "You are player" in message:
-                    player_color = message[-1]
+                msg_content = message[4:]
+                if "You are player" in msg_content:
+                    player_color = msg_content[-1]
+                messages.append(msg_content)  # Display only external messages
         except Exception as e:
-            print(f"Erro: {e}")
+            print(f"Error: {e}")
             client_socket.close()
             break
 
-# Thread para receber atualizações do servidor
 thread = threading.Thread(target=receive_updates)
 thread.start()
 
 draw_initial_pieces()
-# Loop principal do jogo
 running = True
 while running:
+    chat_area_y_start = 410  # Chat area starts at y=410
+
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             client_socket.sendall("QUIT:".encode())
             running = False
         elif event.type == pygame.MOUSEBUTTONDOWN and player_color:
             mouse_x, mouse_y = pygame.mouse.get_pos()
-            clicked_col = mouse_x // square_size
-            clicked_row = mouse_y // square_size
-            client_socket.sendall(f"MOVE:{clicked_col},{clicked_row}".encode())
+            
+        # Check if the resign button is clicked
+            if RESIGN_BUTTON.collidepoint(mouse_x, mouse_y):
+                client_socket.sendall("RESIGN:".encode())
+            else:
+                clicked_col = mouse_x // square_size
+                clicked_row = mouse_y // square_size
+                
+                # Check if the click is within the game board (e.g., 8x8 grid)
+                if 0 <= clicked_col < 8 and 0 <= clicked_row < 8:
+                    if mouse_y < 400:  # Ignore clicks in the chat area
+                        client_socket.sendall(f"MOVE:{clicked_col},{clicked_row}".encode())
+                else:
+                    print("Click is outside the board.")
+            
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_RETURN:
-                msg = input("Digite sua mensagem: ")
-                client_socket.sendall(f"CHAT:{msg}".encode())
+                client_socket.sendall(f"CHAT:{input_text}".encode())
+                messages.append(f"You: {input_text}")
+                input_text = ''
+            elif event.key == pygame.K_BACKSPACE:
+                input_text = input_text[:-1]
+            else:
+                input_text += event.unicode
 
     window.fill(CONSTANTS.WHITE)
     draw_board()
-    for piece in pieces:
-        draw_piece(piece[0], piece[1], piece[2])
+
     pygame.display.update()
 
 pygame.quit()
