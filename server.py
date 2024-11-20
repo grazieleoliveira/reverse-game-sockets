@@ -146,7 +146,7 @@ while len(clients) < 2:
     clients.append(client_socket)
     player_color = 'B' if len(clients) == 1 else 'W'
     players[client_socket] = player_color
-    client_socket.sendall(f"MSG:You are player {player_color}".encode())
+    client_socket.sendall(f"MSG:You are player {player_color}                                        ".encode())
     client_socket.sendall(f"BOARD:{str(board)}".encode())
 
     broadcast_board() 
@@ -155,6 +155,9 @@ while len(clients) < 2:
     # Criar uma nova thread para lidar com o cliente
     thread = threading.Thread(target=handle_client, args=(client_socket, player_color))
     thread.start()
+
+    if len(clients) == 2:
+        broadcast_message(f"You start the game.")
 
 # Fechar o socket do servidor
 server_socket.close()
